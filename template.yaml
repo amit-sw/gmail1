@@ -1,0 +1,101 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Gmail Assistant
+
+  Serverless application to fetch and process Gmail emails.
+
+Parameters:
+  SecretsManagerSecretName:
+    Type: String
+    Description: The name of the AWS Secrets Manager secret holding Google OAuth credentials.
+    Default: gmail/oauth # Matches the design doc
+
+Globals:
+  Function:
+    Timeout: 10 # Seconds
+    MemorySize: 128
+    Runtime: python3.10 # As per design doc for EmailFetcherJob, applying to both for consistency
+    Environment:
+      Variables:
+        SECRETS_MANAGER_SECRET_NAME: !Ref SecretsManagerSecretName
+        # DYNAMO_TABLE_NAME will be set specifically for each function referencing the table
+
+Resources:
+  UserTokensTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      PrimaryKey:
+        Name: userId
+        Type: String
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1 # Minimal, as per design doc
+        WriteCapacityUnits: 1 # Minimal, as per design doc
+      TableName: UserTokens # Explicit table name for clarity
+
+  OAuthCallbackHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: oauth_callback.handler
+      CodeUri: src/
+      Description: Handles the OAuth2 callback from Google, exchanges code for tokens, and stores refresh token.
+      Environment:
+        Variables:
+          DYNAMO_TABLE_NAME: !Ref UserTokensTable # Reference the table created above
+      Policies:
+        - Statement: # Custom policy for least privilege
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource: !GetAtt UserTokensTable.Arn
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretsManagerSecretName}-*" # Allow access to versions
+      Events:
+        OAuthCallbackApi:
+          Type: Api
+          Properties:
+            Path: /oauth2callback
+            Method: get
+
+  EmailFetcherJobFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: email_fetcher.handler # Corrected from .job to .handler for consistency
+      CodeUri: src/
+      Description: Periodically fetches new emails for users using stored refresh tokens.
+      Environment:
+        Variables:
+          DYNAMO_TABLE_NAME: !Ref UserTokensTable
+          MAX_USERS_PER_INVOCATION: '10' # Default, can be overridden
+      Policies:
+        - DynamoDBReadWritePolicy: # Allows Scan, GetItem, UpdateItem
+            TableName: !Ref UserTokensTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretsManagerSecretName}-*"
+      Events:
+        ScheduledFetch:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes) # As per design doc
+            Name: EmailFetchSchedule
+            Description: Triggers email fetching job every 5 minutes
+
+Outputs:
+  OAuthCallbackApiEndpoint:
+    Description: "API Gateway endpoint URL for OAuth callback"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/oauth2callback"
+  UserTokensTableName:
+    Description: "Name of the DynamoDB table storing user tokens"
+    Value: !Ref UserTokensTable
+  EmailFetcherJobFunctionName:
+    Description: "Name of the Email Fetcher Lambda function"
+    Value: !Ref EmailFetcherJobFunction
+  OAuthCallbackHandlerFunctionName:
+    Description: "Name of the OAuth Callback Handler Lambda function"
+    Value: !Ref OAuthCallbackHandlerFunction
