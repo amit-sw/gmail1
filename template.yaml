@@ -71,7 +71,7 @@ Resources:
           DYNAMO_TABLE_NAME: !Ref UserTokensTable
           MAX_USERS_PER_INVOCATION: '10' # Default, can be overridden
       Policies:
-        - DynamoDBReadWritePolicy: # Allows Scan, GetItem, UpdateItem
+        - DynamoDBCrudPolicy:
             TableName: !Ref UserTokensTable
         - Statement:
             - Effect: Allow

@@ -20,6 +20,7 @@ SECRETS_MANAGER_SECRET_NAME = os.environ.get('SECRETS_MANAGER_SECRET_NAME')
 # Google OAuth settings - these will be fetched from Secrets Manager
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo" # To get user's Google ID (sub)
+GMAIL_PROFILE_URL = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
 
 def get_google_oauth_credentials():
     """Retrieves Google OAuth client ID and secret from AWS Secrets Manager."""
@@ -51,22 +52,22 @@ def exchange_code_for_tokens(code, client_id, client_secret, redirect_uri):
         raise
 
 def get_user_google_id(access_token):
-    """Fetches user's Google ID (sub) using the access token."""
+    """Fetches the user's email address from Gmail profile using the access token."""
     headers = {'Authorization': f'Bearer {access_token}'}
     try:
-        response = requests.get(GOOGLE_USERINFO_URL, headers=headers)
+        response = requests.get(GMAIL_PROFILE_URL, headers=headers)
         response.raise_for_status()
-        user_info = response.json()
-        if 'sub' not in user_info:
-            raise ValueError("User ID (sub) not found in userinfo response.")
-        return user_info['sub']
+        profile = response.json()
+        if 'emailAddress' not in profile:
+            raise ValueError("Email address not found in Gmail profile response.")
+        return profile['emailAddress']
     except requests.exceptions.RequestException as e:
-        logger.error(f"Error fetching user info from Google: {e}")
+        logger.error(f"Error fetching Gmail profile: {e}")
         if e.response is not None:
-            logger.error(f"Google userinfo API response: {e.response.text}")
+            logger.error(f"Gmail profile API response: {e.response.text}")
         raise
     except ValueError as e:
-        logger.error(f"Error processing userinfo response: {e}")
+        logger.error(f"Error processing Gmail profile response: {e}")
         raise
 
 
@@ -92,7 +93,7 @@ def store_token_in_dynamodb(user_id, refresh_token):
 
 def build_redirect_uri(event):
     """
-    Constructs the redirect_uri that was used to initiate the OAuth flow.
+    Constructs the redirect URI dynamically at runtime based on the API Gateway event.
     This must match exactly what Google expects.
     """
     headers = event.get('headers', {})
@@ -102,9 +103,10 @@ def build_redirect_uri(event):
     scheme = headers.get('x-forwarded-proto', 'https')
 
     # Host (API Gateway domain name)
-    host = headers.get('host')
+    #host = headers.get('host')
+    host = headers.get('Host') or headers.get('host')
     if not host:
-        logger.error("Host header missing, cannot construct redirect_uri")
+        logger.error(f"Host header missing, cannot construct redirect_uri: {headers=}")
         raise ValueError("Host header missing")
 
     # Path (API Gateway stage and path)
