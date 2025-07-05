@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Data Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="auth-container">
+        <h2>Login</h2>
+        <div id="amplify-auth-container"></div>
+    </div>
+
+    <div id="app-container" style="display: none;">
+        <button id="logout-button">Logout</button>
+        <h1>User Dashboard</h1>
+        <div id="user-info">
+            <p><strong>User ID:</strong> <span id="user-id"></span></p>
+            <p><strong>Refresh Token:</strong> <span id="refresh-token"></span></p>
+            <p><strong>Processing Status:</strong> <span id="processing-status">Not yet available.</span></p>
+        </div>
+        <div id="error-message" class="error"></div>
+    </div>
+
+    <script src="https_aws-amplify.github.io_amplify-js_js_aws-amplify.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
